@@ -4,6 +4,7 @@ import type { Parcel } from "@/lib/types";
 import { ringAreaSquareMetres } from "@/lib/area";
 import type { Placement } from "@/lib/placements";
 import { estimateBays, rectangleSideLengthsMetres } from "@/lib/parking";
+import { rectOutsideRing } from "@/lib/containment";
 import PlacementList from "./PlacementList";
 
 interface Props {
@@ -24,6 +25,10 @@ export default function Sidebar({ parcel, placements, onDeletePlacement }: Props
     return sum + estimateBays(width, length, 0.1);
   }, 0);
 
+  const outOfBounds = parcel
+    ? placements.filter((p) => rectOutsideRing(p.bounds, parcel.ring))
+    : [];
+
   return (
     <aside className="absolute right-0 top-0 z-[1000] h-full w-72 bg-white p-4 shadow-lg">
       <h2 className="text-lg font-semibold">Site</h2>
@@ -39,6 +44,14 @@ export default function Sidebar({ parcel, placements, onDeletePlacement }: Props
         <p className="mt-2 text-sm text-slate-500">
           Use the polygon tool (top-left) to draw the church block outline.
         </p>
+      )}
+      {outOfBounds.length > 0 && (
+        <div className="mt-3 rounded bg-amber-50 p-2 text-sm text-amber-800">
+          <div className="font-semibold">Outside the church block</div>
+          <ul className="list-disc pl-4 text-xs">
+            {outOfBounds.map((p) => <li key={p.id}>{p.name}</li>)}
+          </ul>
+        </div>
       )}
       {carparkPlacements.length > 0 && (
         <div className="mt-3 rounded bg-blue-50 p-2 text-sm">
