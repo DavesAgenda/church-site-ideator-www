@@ -5,6 +5,7 @@ import "leaflet/dist/leaflet.css";
 import "@geoman-io/leaflet-geoman-free";
 import "@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css";
 import type { Parcel } from "@/lib/types";
+import Sidebar from "./Sidebar";
 
 export default function MapView() {
   const ref = useRef<HTMLDivElement>(null);
@@ -53,5 +54,10 @@ export default function MapView() {
 
     return () => { map.remove(); };
   }, []);
-  return <div ref={ref} className="h-full w-full" data-parcel={parcel?.id ?? ""} />;
+  return (
+    <>
+      <div ref={ref} className="h-full w-full" data-parcel={parcel?.id ?? ""} />
+      <Sidebar parcel={parcel} />
+    </>
+  );
 }
