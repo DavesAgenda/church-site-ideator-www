@@ -62,6 +62,30 @@ We do **not** build angled bays, accessibility ratios, or perimeter driveways in
 
 Angled bays, AI suggestions, density scoring, and "compare two layouts" all move to the next phase.
 
+**Solver algorithm (corrected, this is what gets built):**
+
+For an axis-aligned rectangle of width `w` (longer side, aisle direction) and length `l` (shorter side, row depth), with landscaping fraction `f = 0.10`:
+
+```
+effectiveL = l * (1 - f)
+
+if w < BAY.width:                   → 0 bays, warning
+elif effectiveL >= 2*BAY.length + AISLE.width:   # two-side layout
+    baysPerRow    = floor(w / BAY.width)         # across the long axis
+    sideDepth     = (effectiveL - AISLE.width) / 2
+    rowsPerSide   = min(2, floor(sideDepth / BAY.length))
+    totalBays     = baysPerRow * rowsPerSide * 2
+    # One aisle centred along the length, bays stacked on each side
+elif effectiveL >= BAY.length:     # single-side layout
+    baysPerRow    = floor(w / BAY.width)
+    totalBays     = baysPerRow
+else:                                → 0 bays, warning "too shallow"
+```
+
+Note: `rowsPerSide` is *per side* of the aisle, not total rows. Earlier sketch in this section conflated the two and would have produced double the correct bay count. The MVP's `estimateBays` in `lib/parking.ts` already uses the correct formula.
+
+**Visual mock:** `/tmp/church-site-ideator-mock.html` (relative to the WSL host) is a static HTML page that runs the same solver algorithm against a hand-drawn parcel polygon over the Grantham Farm satellite tiles. It confirms the visual output: 28 bays for a 36m × 18m placement, two-row layout, central 6m drive aisle, 4.3 bays/100m² efficiency, 13.9% coverage of the 4,661 m² parcel. Used as the visual ground-truth for §3 below.
+
 ## 4. Non-solver UX work
 
 ### 4.1 Default centre and address search
