@@ -84,7 +84,7 @@ else:                                → 0 bays, warning "too shallow"
 
 Note: `rowsPerSide` is *per side* of the aisle, not total rows. Earlier sketch in this section conflated the two and would have produced double the correct bay count. The MVP's `estimateBays` in `lib/parking.ts` already uses the correct formula.
 
-**Visual mock:** `/tmp/church-site-ideator-mock.html` (relative to the WSL host) is a static HTML page that runs the same solver algorithm against a hand-drawn parcel polygon over the Grantham Farm satellite tiles. It confirms the visual output: 28 bays for a 36m × 18m placement, two-row layout, central 6m drive aisle, 4.3 bays/100m² efficiency, 13.9% coverage of the 4,661 m² parcel. Used as the visual ground-truth for §3 below.
+**Visual mock:** `docs/mock-solver-2026-06-02.html` (in the repo, for archive/reference) and `public/mock-solver.html` (deployed to Vercel, accessible at `https://church-site-ideator-www.vercel.app/mock-solver.html`). Both run the same solver algorithm against a hand-drawn parcel polygon over the Grantham Farm satellite tiles. They confirm the visual output: 28 bays for a 36m × 18m placement, two-row layout, central 6m drive aisle, 4.3 bays/100m² efficiency, 13.9% coverage of the 4,661 m² parcel. Used as the visual ground-truth for §3 below.
 
 ## 4. Non-solver UX work
 

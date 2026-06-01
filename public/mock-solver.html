@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Church Site Ideator — parity phase mock (solver visual)</title>
+  <style>
+    body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: #0f172a; color: #f1f5f9; }
+    .header { padding: 12px 20px; background: #1e293b; border-bottom: 1px solid #334155; }
+    .header h1 { margin: 0 0 4px 0; font-size: 16px; font-weight: 600; }
+    .header p  { margin: 0; font-size: 12px; color: #94a3b8; }
+    .stage { display: grid; grid-template-columns: 1fr 320px; gap: 12px; padding: 12px; }
+    .map-wrap { position: relative; width: 1024px; height: 768px; background: #000; border: 1px solid #334155; }
+    .map-wrap img { position: absolute; image-rendering: pixelated; }
+    .map-wrap .parcel-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    .legend { position: absolute; left: 12px; bottom: 12px; background: rgba(15, 23, 42, 0.92); padding: 8px 10px; border-radius: 6px; font-size: 11px; line-height: 1.6; border: 1px solid #334155; z-index: 10; }
+    .legend .row { display: flex; align-items: center; gap: 6px; }
+    .legend .swatch { width: 12px; height: 12px; display: inline-block; border-radius: 2px; }
+    .search { position: absolute; top: 12px; left: 12px; right: 12px; max-width: 480px; z-index: 10; }
+    .search input { width: 100%; box-sizing: border-box; padding: 8px 10px; background: white; color: #0f172a; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 13px; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
+    .search .attrib { font-size: 10px; color: #94a3b8; margin-top: 4px; }
+    .toolbar { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 10; background: white; padding: 4px; border-radius: 6px; display: flex; gap: 4px; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
+    .toolbar button { padding: 6px 10px; font-size: 12px; border: 0; background: transparent; cursor: pointer; border-radius: 4px; color: #334155; }
+    .toolbar button.active { background: #0f172a; color: white; }
+    .sidebar { background: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 12px; font-size: 12px; }
+    .sidebar h2 { margin: 0 0 6px 0; font-size: 13px; font-weight: 600; color: #f1f5f9; }
+    .sidebar .section { margin-bottom: 14px; padding-bottom: 12px; border-bottom: 1px solid #334155; }
+    .sidebar .section:last-child { border-bottom: 0; margin-bottom: 0; }
+    .sidebar .stat { display: flex; justify-content: space-between; margin: 2px 0; }
+    .sidebar .stat .k { color: #94a3b8; }
+    .sidebar .stat .v { font-variant-numeric: tabular-nums; color: #f1f5f9; }
+    .warning { background: rgba(245, 158, 11, 0.15); border: 1px solid #f59e0b; color: #fbbf24; padding: 6px 8px; border-radius: 4px; font-size: 11px; margin-top: 4px; }
+    .pill { display: inline-block; padding: 1px 6px; background: #0ea5e9; color: white; border-radius: 999px; font-size: 10px; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Church Site Ideator — parity phase mock</h1>
+    <p>What the app looks like after the solver + BayGrid renderer ship. Default centre: 33 Hamilton St, Grantham Farm NSW 2765. Same Leaflet/Esri stack as the MVP, just with the parking solver drawn on top.</p>
+  </div>
+
+  <div class="stage">
+    <div class="map-wrap" id="map">
+      <!-- 4×3 Esri satellite tiles, z=18, centred on parcel. Same tile server the real app uses. -->
+      <!-- Row 0: y=157138 -->
+      <img src="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/157138/240931" style="left: 0px;    top: 0px;" />
+      <img src="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/157138/240932" style="left: 256px;  top: 0px;" />
+      <img src="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/157138/240933" style="left: 512px;  top: 0px;" />
+      <img src="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/157138/240934" style="left: 768px;  top: 0px;" />
+      <!-- Row 1: y=157139 -->
+      <img src="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/157139/240931" style="left: 0px;    top: 256px;" />
+      <img src="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/157139/240932" style="left: 256px;  top: 256px;" />
+      <img src="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/157139/240933" style="left: 512px;  top: 256px;" />
+      <img src="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/157139/240934" style="left: 768px;  top: 256px;" />
+      <!-- Row 2: y=157140 -->
+      <img src="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/157140/240931" style="left: 0px;    top: 512px;" />
+      <img src="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/157140/240932" style="left: 256px;  top: 512px;" />
+      <img src="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/157140/240933" style="left: 512px;  top: 512px;" />
+      <img src="https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/18/157140/240934" style="left: 768px;  top: 512px;" />
+
+      <svg class="parcel-svg" viewBox="0 0 1024 768" id="parcel-svg"></svg>
+
+      <div class="search">
+        <input type="text" placeholder="Search address (Nominatim)… e.g. 33 Hamilton St Grantham Farm NSW 2765" value="33 Hamilton St, Grantham Farm NSW 2765" />
+        <div class="attrib">Search by OpenStreetMap Nominatim · Tiles © Esri</div>
+      </div>
+
+      <div class="toolbar">
+        <button class="active" style="border-left: 4px solid #2563eb;">Car park</button>
+        <button style="border-left: 4px solid #475569;">Building</button>
+        <button style="border-left: 4px solid #16a34a;">Green space</button>
+      </div>
+
+      <div class="legend">
+        <div class="row"><span class="swatch" style="background: #0ea5e9; opacity: 0.4; border: 1px solid #0ea5e9;"></span> Parcel boundary (drawn by user)</div>
+        <div class="row"><span class="swatch" style="background: #2563eb; opacity: 0.3; border: 1px solid #2563eb;"></span> Car park placement</div>
+        <div class="row"><span class="swatch" style="background: white; border: 1px solid #2563eb;"></span> Standard bay (2.5m × 5m)</div>
+        <div class="row"><span class="swatch" style="background: #1e3a8a;"></span> Drive aisle (6m, two-way)</div>
+        <div class="row"><span class="swatch" style="background: #fbbf24;"></span> Access lane (3.5m)</div>
+      </div>
+    </div>
+
+    <aside class="sidebar">
+      <div class="section">
+        <h2>Site <span class="pill">parcel drawn</span></h2>
+        <div class="stat"><span class="k">Name</span><span class="v">Church block</span></div>
+        <div class="stat"><span class="k">Area</span><span class="v" id="site-area">—</span></div>
+        <div class="stat"><span class="k">Address</span><span class="v">33 Hamilton St</span></div>
+      </div>
+
+      <div class="section">
+        <h2>Placements</h2>
+        <div class="stat" style="margin-bottom: 6px;"><span class="k" style="color: #f1f5f9;">▶ Car park 1</span><span class="v" id="bays-count">—</span></div>
+        <div class="stat"><span class="k">Area</span><span class="v" id="bays-area">—</span></div>
+        <div class="stat"><span class="k">Layout</span><span class="v" id="bays-layout">—</span></div>
+        <div class="stat"><span class="k">Efficiency</span><span class="v" id="bays-efficiency">—</span></div>
+        <div class="warning" id="bays-warning" style="display:none;"></div>
+      </div>
+
+      <div class="section">
+        <h2>Site totals</h2>
+        <div class="stat"><span class="k">Gross parcel</span><span class="v" id="totals-gross">—</span></div>
+        <div class="stat"><span class="k">Developed</span><span class="v" id="totals-developed">—</span></div>
+        <div class="stat"><span class="k">Undeveloped</span><span class="v" id="totals-undeveloped">—</span></div>
+        <div class="stat"><span class="k">Coverage</span><span class="v" id="totals-coverage">—</span></div>
+        <div class="stat"><span class="k">Total bays</span><span class="v" id="totals-bays">—</span></div>
+      </div>
+
+      <div class="section" style="color: #94a3b8;">
+        <em>Drag the car park rectangle to see the solver re-run.</em>
+      </div>
+    </aside>
+  </div>
+
+  <script>
+    // ============================================================
+    // Mock solver — 1:1 with the planned lib/parking/solver.ts
+    // ============================================================
+    const BAY = { width: 2.5, length: 5 };
+    const AISLE = { width: 6 };
+    const ACCESS = { width: 3.5 };
+    const LANDSCAPING = 0.10;
+
+    function solveParking(widthM, lengthM) {
+      const w = Math.max(widthM, lengthM);
+      const l = Math.min(widthM, lengthM);
+      const effL = l * (1 - LANDSCAPING);
+      const bays = [];
+      const aisles = [];
+      const access = [];
+      const warnings = [];
+
+      if (w < BAY.width) {
+        warnings.push(`Rectangle ${w.toFixed(1)}m wide on long side — no standard bay fits.`);
+        return { bays, aisles, access, warnings };
+      }
+
+      if (effL >= BAY.length * 2 + AISLE.width) {
+        // Two-row layout: two sides of the rectangle, each with up to 2 rows of
+        // bays, flanking a central aisle. baysPerRow is across the long axis.
+        const baysPerRow = Math.floor(w / BAY.width);
+        // Available depth per side = (effL - aisle) / 2
+        const sideDepth = (effL - AISLE.width) / 2;
+        const rowsPerSide = Math.min(2, Math.floor(sideDepth / BAY.length));
+        const aisleY0 = (l - AISLE.width) / 2;
+        const aisleLength = baysPerRow * BAY.width;
+        aisles.push({ x: 0, y: aisleY0, w: aisleLength, h: AISLE.width });
+        // Bays on the north side of the aisle (each row stacked north)
+        for (let r = 0; r < rowsPerSide; r++) {
+          for (let c = 0; c < baysPerRow; c++) {
+            bays.push({ x: c * BAY.width, y: aisleY0 - (r + 1) * BAY.length, w: BAY.width, h: BAY.length });
+          }
+        }
+        // Bays on the south side of the aisle (each row stacked south)
+        for (let r = 0; r < rowsPerSide; r++) {
+          for (let c = 0; c < baysPerRow; c++) {
+            bays.push({ x: c * BAY.width, y: aisleY0 + AISLE.width + r * BAY.length, w: BAY.width, h: BAY.length });
+          }
+        }
+        // Access lane at the north short edge (assumed building side)
+        access.push({ x: 0, y: -ACCESS.width, w: ACCESS.width * 2, h: ACCESS.width });
+      } else if (effL >= BAY.length) {
+        const baysPerRow = Math.floor(w / BAY.width);
+        for (let c = 0; c < baysPerRow; c++) {
+          bays.push({ x: c * BAY.width, y: 0, w: BAY.width, h: BAY.length });
+        }
+        warnings.push(`Single-row fallback — no aisle, rectangle too shallow for two-row layout.`);
+      } else {
+        warnings.push(`Too shallow for any standard bay.`);
+      }
+      return { bays, aisles, access, warnings };
+    }
+
+    // ============================================================
+    // Coordinate helpers
+    // ============================================================
+    // The "world" is in metres, local to the placement rectangle's
+    // south-west corner. We then map that onto SVG pixels.
+    //
+    // Mock placement: car park 1, ~20m × 13m rectangle.
+    // In the real app these bounds come from Leaflet's L.rectangle bounds.
+    const PLACEMENT = { widthM: 36, lengthM: 18, // realistic small-church car park, 36m × 18m
+                        svgX: 380, svgY: 320,  };
+    const PX_PER_M = 7; // 7 SVG pixels per metre (visual scale)
+
+    // The parcel polygon in SVG pixels (rough, hand-drawn for the mock).
+    // In the real app, this is the geoman-drawn L.polygon.
+    const PARCEL_POLY = [
+      [260, 200], [820, 210], [830, 540], [780, 600], [240, 590], [230, 280]
+    ];
+
+    // ============================================================
+    // Render
+    // ============================================================
+    const svg = document.getElementById('parcel-svg');
+
+    // 1) Parcel polygon
+    const polyPoints = PARCEL_POLY.map(p => p.join(',')).join(' ');
+    svg.insertAdjacentHTML('beforeend',
+      `<polygon points="${polyPoints}" fill="rgba(14, 165, 233, 0.15)" stroke="#0ea5e9" stroke-width="3" />`);
+
+    // 2) Solve the placement
+    const layout = solveParking(PLACEMENT.widthM, PLACEMENT.lengthM);
+
+    // 3) Car park rectangle (the placement itself)
+    const cpW = PLACEMENT.widthM * PX_PER_M;
+    const cpH = PLACEMENT.lengthM * PX_PER_M;
+    svg.insertAdjacentHTML('beforeend',
+      `<rect x="${PLACEMENT.svgX}" y="${PLACEMENT.svgY}" width="${cpW}" height="${cpH}"
+             fill="rgba(37, 99, 235, 0.12)" stroke="#2563eb" stroke-width="2.5" />`);
+
+    // 4) Bay grid
+    let bayCount = 0;
+    layout.bays.forEach(b => {
+      bayCount++;
+      const x = PLACEMENT.svgX + b.x * PX_PER_M;
+      const y = PLACEMENT.svgY + b.y * PX_PER_M;
+      const w = b.w * PX_PER_M;
+      const h = b.h * PX_PER_M;
+      svg.insertAdjacentHTML('beforeend',
+        `<rect x="${x}" y="${y}" width="${w}" height="${h}"
+               fill="white" stroke="#2563eb" stroke-width="0.5" />`);
+    });
+
+    // 5) Aisle
+    layout.aisles.forEach(a => {
+      const x = PLACEMENT.svgX + a.x * PX_PER_M;
+      const y = PLACEMENT.svgY + a.y * PX_PER_M;
+      const w = a.w * PX_PER_M;
+      const h = a.h * PX_PER_M;
+      svg.insertAdjacentHTML('beforeend',
+        `<rect x="${x}" y="${y}" width="${w}" height="${h}"
+               fill="#1e3a8a" fill-opacity="0.55" stroke="#1e3a8a" stroke-width="0.5" />`);
+    });
+
+    // 6) Access lane
+    layout.access.forEach(a => {
+      const x = PLACEMENT.svgX + a.x * PX_PER_M;
+      const y = PLACEMENT.svgY + a.y * PX_PER_M;
+      const w = a.w * PX_PER_M;
+      const h = a.h * PX_PER_M;
+      svg.insertAdjacentHTML('beforeend',
+        `<rect x="${x}" y="${y}" width="${w}" height="${h}"
+               fill="#fbbf24" stroke="#a16207" stroke-width="0.5" />`);
+    });
+
+    // 7) Drag-to-move affordance: a small handle in the centre of the placement
+    const handleX = PLACEMENT.svgX + cpW / 2;
+    const handleY = PLACEMENT.svgY + cpH / 2;
+    svg.insertAdjacentHTML('beforeend',
+      `<g><circle cx="${handleX}" cy="${handleY}" r="6" fill="white" stroke="#2563eb" stroke-width="2" />
+         <text x="${handleX}" y="${handleY + 3}" text-anchor="middle" font-size="8" fill="#2563eb" font-weight="bold">↕</text></g>`);
+
+    // 8) Bay count label above the placement
+    const layoutDesc = layout.aisles.length > 0
+      ? `${layout.bays.length} (two-row)`
+      : layout.bays.length > 0
+        ? `${layout.bays.length} (single-row)`
+        : 'no layout';
+    svg.insertAdjacentHTML('beforeend',
+      `<text x="${PLACEMENT.svgX}" y="${PLACEMENT.svgY - 8}" font-size="11" font-weight="600" fill="white" stroke="#0f172a" stroke-width="3" paint-order="stroke">Car park 1 — ${bayCount} bays</text>`);
+
+    // 9) Populate the sidebar from the same solver output
+    const areaM2 = PLACEMENT.widthM * PLACEMENT.lengthM;
+    const efficiency = (bayCount / areaM2) * 100;
+    // Parcel area = shoelace on the SVG polygon, scaled to metres via PX_PER_M
+    function shoelaceAreaM2(poly) {
+      let s = 0;
+      for (let i = 0; i < poly.length; i++) {
+        const [x1, y1] = poly[i];
+        const [x2, y2] = poly[(i + 1) % poly.length];
+        s += (x1 * y2 - x2 * y1);
+      }
+      return Math.abs(s) / 2 / (PX_PER_M * PX_PER_M);
+    }
+    const parcelArea = shoelaceAreaM2(PARCEL_POLY);
+    document.getElementById('site-area').textContent = `${Math.round(parcelArea).toLocaleString()} m²`;
+    const developed = areaM2;
+    const undeveloped = parcelArea - developed;
+    const coverage = (developed / parcelArea) * 100;
+
+    document.getElementById('bays-count').textContent = `${bayCount} bays`;
+    document.getElementById('bays-area').textContent = `${Math.round(areaM2).toLocaleString()} m²`;
+    document.getElementById('bays-layout').textContent = layoutDesc;
+    document.getElementById('bays-efficiency').textContent = `${efficiency.toFixed(1)} bays/100m²`;
+    if (layout.warnings.length) {
+      const wEl = document.getElementById('bays-warning');
+      wEl.style.display = 'block';
+      wEl.textContent = layout.warnings.join(' ');
+    } else {
+      document.getElementById('bays-warning').textContent =
+        'Layout: standard bays 2.5m × 5m, 6m two-way aisle, 10% landscaping.';
+      document.getElementById('bays-warning').style.display = 'block';
+      document.getElementById('bays-warning').style.background = 'rgba(14, 165, 233, 0.12)';
+      document.getElementById('bays-warning').style.borderColor = '#0ea5e9';
+      document.getElementById('bays-warning').style.color = '#7dd3fc';
+    }
+    document.getElementById('totals-gross').textContent = `${Math.round(parcelArea).toLocaleString()} m²`;
+    document.getElementById('totals-developed').textContent = `${Math.round(developed).toLocaleString()} m²`;
+    document.getElementById('totals-undeveloped').textContent = `${Math.round(undeveloped).toLocaleString()} m²`;
+    document.getElementById('totals-coverage').textContent = `${coverage.toFixed(1)}%`;
+    document.getElementById('totals-bays').textContent = `${bayCount}`;
+
+    // Sanity: report to console
+    console.log(`Mock solver: ${bayCount} bays in ${PLACEMENT.widthM}m × ${PLACEMENT.lengthM}m rectangle`);
+    console.log(`Layout: ${layoutDesc}`);
+    console.log(`Warnings: ${layout.warnings.length ? layout.warnings.join('; ') : 'none'}`);
+  </script>
+</body>
+</html>
