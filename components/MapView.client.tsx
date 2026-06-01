@@ -5,11 +5,16 @@ import "leaflet/dist/leaflet.css";
 import "@geoman-io/leaflet-geoman-free";
 import "@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css";
 import type { Parcel } from "@/lib/types";
+import type { Placement, PlacementKind } from "@/lib/placements";
+import { typePlacementColour, kindLabel } from "@/lib/placements";
 import Sidebar from "./Sidebar";
+import PlacementList from "./PlacementList";
 
 export default function MapView() {
   const ref = useRef<HTMLDivElement>(null);
   const [parcel, setParcel] = useState<Parcel | null>(null);
+  const [placements, setPlacements] = useState<Placement[]>([]);
+  const [activeKind, setActiveKind] = useState<PlacementKind>("carpark");
   useEffect(() => {
     if (!ref.current) return;
     const map = L.map(ref.current, {
@@ -52,12 +57,93 @@ export default function MapView() {
       setParcel(null);
     });
 
+    // Shift-drag placement drawing (for activeKind)
+    let drawOrigin: L.LatLng | null = null;
+    let drawRect: L.Rectangle | null = null;
+    map.on("mousedown", (e: L.LeafletMouseEvent) => {
+      if (e.originalEvent.shiftKey) {
+        drawOrigin = e.latlng;
+      }
+    });
+    map.on("mousemove", (e: L.LeafletMouseEvent) => {
+      if (!drawOrigin) return;
+      if (drawRect) map.removeLayer(drawRect);
+      drawRect = L.rectangle(
+        [
+          [drawOrigin.lat, drawOrigin.lng],
+          [e.latlng.lat, e.latlng.lng],
+        ],
+        {
+          color: typePlacementColour(activeKind),
+          weight: 2,
+          fillOpacity: 0.3,
+        }
+      ).addTo(map);
+    });
+    map.on("mouseup", (e: L.LeafletMouseEvent) => {
+      if (!drawOrigin) return;
+      const a = drawOrigin;
+      const b = e.latlng;
+      drawOrigin = null;
+      if (drawRect) {
+        map.removeLayer(drawRect);
+        drawRect = null;
+      }
+      const south = Math.min(a.lat, b.lat);
+      const west = Math.min(a.lng, b.lng);
+      const north = Math.max(a.lat, b.lat);
+      const east = Math.max(a.lng, b.lng);
+      const count = placements.filter((p) => p.kind === activeKind).length + 1;
+      const id = crypto.randomUUID();
+      const name = `${kindLabel(activeKind)} ${count}`;
+      const placement: Placement = {
+        id, kind: activeKind, name,
+        bounds: { south, west, north, east },
+      };
+      // Persist a visible rectangle for the new placement (the drag-preview was removed above)
+      L.rectangle(
+        [
+          [south, west],
+          [north, east],
+        ],
+        { color: typePlacementColour(activeKind), weight: 2, fillOpacity: 0.3 }
+      ).bindTooltip(name).addTo(map);
+      setPlacements((prev) => [...prev, placement]);
+    });
+
     return () => { map.remove(); };
-  }, []);
+    // placements is intentionally NOT in deps; the closure reads the latest via setPlacements functional update
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeKind]);
+
+  const Toolbar = () => (
+    <div className="absolute left-1/2 top-2 z-[1000] flex -translate-x-1/2 gap-1 rounded bg-white p-1 shadow">
+      {(["carpark", "building", "greenspace"] as PlacementKind[]).map((k) => (
+        <button
+          key={k}
+          onClick={() => setActiveKind(k)}
+          className={`rounded px-3 py-1 text-sm ${
+            activeKind === k ? "bg-slate-900 text-white" : "text-slate-700"
+          }`}
+          style={{ borderLeft: `4px solid ${typePlacementColour(k)}` }}
+        >
+          {kindLabel(k)}
+        </button>
+      ))}
+    </div>
+  );
+
   return (
     <>
       <div ref={ref} className="h-full w-full" data-parcel={parcel?.id ?? ""} />
-      <Sidebar parcel={parcel} />
+      <Toolbar />
+      <Sidebar
+        parcel={parcel}
+        placements={placements}
+        onDeletePlacement={(id) =>
+          setPlacements((prev) => prev.filter((p) => p.id !== id))
+        }
+      />
     </>
   );
 }
