@@ -7,6 +7,7 @@ import "@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css";
 import type { Parcel } from "@/lib/types";
 import type { Placement, PlacementKind } from "@/lib/placements";
 import { typePlacementColour, kindLabel } from "@/lib/placements";
+import { deserialise, isValidState, serialise, STORAGE_KEY, type PersistedState } from "@/lib/persistence";
 import Sidebar from "./Sidebar";
 import PlacementList from "./PlacementList";
 
@@ -15,6 +16,11 @@ export default function MapView() {
   const [parcel, setParcel] = useState<Parcel | null>(null);
   const [placements, setPlacements] = useState<Placement[]>([]);
   const [activeKind, setActiveKind] = useState<PlacementKind>("carpark");
+  const mapRef = useRef<L.Map | null>(null);
+  const parcelLayerRef = useRef<L.Polygon | null>(null);
+  const rectLayerMapRef = useRef<Map<string, L.Rectangle>>(new Map());
+  const hydratedRef = useRef(false);
+
   useEffect(() => {
     if (!ref.current) return;
     const map = L.map(ref.current, {
@@ -25,6 +31,7 @@ export default function MapView() {
       "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
       { maxZoom: 20, attribution: "Tiles &copy; Esri" }
     ).addTo(map);
+    mapRef.current = map;
 
     let drawnLayer: L.Polygon | null = null;
     map.pm.addControls({
@@ -49,11 +56,14 @@ export default function MapView() {
       const latlngs = (drawnLayer.getLatLngs()[0] as L.LatLng[])
         .map((p) => [p.lng, p.lat] as [number, number]);
       latlngs.push(latlngs[0]); // close ring
-      setParcel({ id: crypto.randomUUID(), name: "Church block", ring: latlngs });
+      const next: Parcel = { id: crypto.randomUUID(), name: "Church block", ring: latlngs };
+      parcelLayerRef.current = drawnLayer;
+      setParcel(next);
     });
 
     map.on("pm:remove", () => {
       drawnLayer = null;
+      parcelLayerRef.current = null;
       setParcel(null);
     });
 
@@ -101,20 +111,68 @@ export default function MapView() {
         bounds: { south, west, north, east },
       };
       // Persist a visible rectangle for the new placement (the drag-preview was removed above)
-      L.rectangle(
+      const rect = L.rectangle(
         [
           [south, west],
           [north, east],
         ],
         { color: typePlacementColour(activeKind), weight: 2, fillOpacity: 0.3 }
       ).bindTooltip(name).addTo(map);
+      rectLayerMapRef.current.set(id, rect);
       setPlacements((prev) => [...prev, placement]);
     });
 
-    return () => { map.remove(); };
+    // One-time hydration from localStorage, AFTER the map is ready.
+    // This is the visual-restore fix: the map is fully created before we read
+    // localStorage, so we can immediately redraw the parcel polygon and
+    // placement rectangles on the map (not just restore React state).
+    if (!hydratedRef.current) {
+      hydratedRef.current = true;
+      if (typeof window !== "undefined") {
+        const raw = window.localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const s = deserialise(raw);
+          if (s) {
+            // Restore parcel: draw polygon + set state
+            // isValidState guarantees parcel is non-null when it returns true
+            const restoredParcel = s.parcel!;
+            const latlngs = restoredParcel.ring.map(([lng, lat]) => L.latLng(lat, lng));
+            parcelLayerRef.current = L.polygon(latlngs, {
+              color: "#0ea5e9", weight: 3, fillOpacity: 0.1,
+            }).bindTooltip(restoredParcel.name).addTo(map);
+            setParcel(restoredParcel);
+            // Restore placements: draw rectangles + set state
+            s.placements.forEach((p) => {
+              const rect = L.rectangle(
+                [[p.bounds.south, p.bounds.west], [p.bounds.north, p.bounds.east]],
+                { color: typePlacementColour(p.kind), weight: 2, fillOpacity: 0.3 }
+              ).bindTooltip(p.name).addTo(map);
+              rectLayerMapRef.current.set(p.id, rect);
+            });
+            setPlacements(s.placements);
+          }
+        }
+      }
+    }
+
+    return () => {
+      map.remove();
+      mapRef.current = null;
+      parcelLayerRef.current = null;
+      rectLayerMapRef.current.clear();
+      hydratedRef.current = false; // reset for next mount
+    };
     // placements is intentionally NOT in deps; the closure reads the latest via setPlacements functional update
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeKind]);
+
+  // Autosave: write to localStorage whenever parcel or placements change
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const s: PersistedState = { parcel, placements };
+    if (!isValidState(s)) return;
+    window.localStorage.setItem(STORAGE_KEY, serialise(s));
+  }, [parcel, placements]);
 
   const Toolbar = () => (
     <div className="absolute left-1/2 top-2 z-[1000] flex -translate-x-1/2 gap-1 rounded bg-white p-1 shadow">
@@ -140,9 +198,15 @@ export default function MapView() {
       <Sidebar
         parcel={parcel}
         placements={placements}
-        onDeletePlacement={(id) =>
-          setPlacements((prev) => prev.filter((p) => p.id !== id))
-        }
+        onDeletePlacement={(id) => {
+          // Remove the rectangle from the map so the visual matches React state
+          const rect = rectLayerMapRef.current.get(id);
+          if (rect && mapRef.current) {
+            mapRef.current.removeLayer(rect);
+          }
+          rectLayerMapRef.current.delete(id);
+          setPlacements((prev) => prev.filter((p) => p.id !== id));
+        }}
       />
     </>
   );
