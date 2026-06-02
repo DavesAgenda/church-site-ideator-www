@@ -151,6 +151,7 @@ export default function MapView() {
       const placement: Placement = {
         id, kind, name,
         bounds: { south, west, north, east },
+        thetaDeg: 0,
       };
       const rect = L.rectangle(
         [[south, west], [north, east]],

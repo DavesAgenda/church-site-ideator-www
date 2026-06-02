@@ -14,6 +14,7 @@ const v2state = {
       kind: "carpark" as const,
       name: "CP1",
       bounds: { south: 0, west: 0, north: 1, east: 1 },
+      thetaDeg: 0,
     },
   ],
   viewport: { center: [-33.6736, 150.8699] as [number, number], zoom: 18 },

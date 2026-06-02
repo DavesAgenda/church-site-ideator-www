@@ -4,18 +4,24 @@ import L from "leaflet";
 import type { Placement } from "@/lib/placements";
 import { solveParking, DEFAULT_LANDSCAPING } from "@/lib/parking/solver";
 import { rectangleSideLengthsMetres } from "@/lib/parking";
+import { rotatePoint } from "@/lib/parking/rotation";
 import type { ParkingLayout, Bay, Aisle, Access } from "@/lib/parking/types";
 
 /**
- * BayGrid renders the parking layout for one placement as an SVG layer
- * added to the given Leaflet map. Pure DOM/SVG manipulation — React just
- * hands the props to a useEffect that syncs the SVG.
+ * BayGrid renders the parking layout for one placement as a Leaflet
+ * layer group. Pure DOM/SVG manipulation — React just hands the props
+ * to a useEffect that syncs the rectangles.
  *
  * Coordinate transform: solver output is in LOCAL metres from the
- * placement's SW corner. We pick the placement's NW corner as a reference
- * point, project it to a Leaflet layer point, and offset each metre by an
- * east axis (in pixel space) and a north axis (in pixel space), derived
- * from the placement's NW→NE and NW→SW pixel vectors.
+ * placement's SW corner. We rotate each local point about the
+ * placement's local centroid by `placement.thetaDeg` to get the
+ * *visual* position. Then we project the rotated local point to a
+ * Leaflet layer point by adding east-axis and south-axis pixel
+ * vectors from the placement's NW corner.
+ *
+ * Bounds (in lat/lng) stay unrotated; only the rendered rects
+ * rotate. This keeps the data model simple: `bounds` is the
+ * unrotated enclosing rectangle, `thetaDeg` is a visual transform.
  */
 interface Props {
   map: L.Map | null;
@@ -49,6 +55,11 @@ export default function BayGrid({ map, placement }: Props) {
         })
       : { bays: [], aisles: [], access: [], warnings: [], style: "none", summary: { totalBays: 0, standardBays: 0, accessibleBays: 0, grossAreaM2: 0, efficiency: 0 } };
 
+    // Local centroid (in placement-local metres) is the rotation pivot.
+    const cx = width / 2;
+    const cy = length / 2;
+    const theta = placement.thetaDeg ?? 0;
+
     // Build the layer group + initial rectangles.
     const group = L.layerGroup();
     const newBayRects: L.Rectangle[] = [];
@@ -57,7 +68,7 @@ export default function BayGrid({ map, placement }: Props) {
 
     const corners = cornersOf(placement);
     for (const b of layout.bays) {
-      const r = makeRectAt(map, corners, b);
+      const r = makeRectAt(map, corners, b, cx, cy, theta);
       r.setStyle({
         color: COLOURS.bayStroke,
         weight: 0.5,
@@ -68,7 +79,7 @@ export default function BayGrid({ map, placement }: Props) {
       newBayRects.push(r);
     }
     for (const a of layout.aisles) {
-      const r = makeRectAt(map, corners, a);
+      const r = makeRectAt(map, corners, a, cx, cy, theta);
       r.setStyle({
         color: COLOURS.aisleStroke,
         weight: 0.5,
@@ -79,7 +90,7 @@ export default function BayGrid({ map, placement }: Props) {
       newAisleRects.push(r);
     }
     for (const a of layout.access) {
-      const r = makeRectAt(map, corners, a);
+      const r = makeRectAt(map, corners, a, cx, cy, theta);
       r.setStyle({
         color: COLOURS.accessStroke,
         weight: 0.5,
@@ -101,15 +112,15 @@ export default function BayGrid({ map, placement }: Props) {
     const reposition = () => {
       const c = cornersOf(placement);
       for (let i = 0; i < layout.bays.length; i++) {
-        const newBounds = boundsForRect(map, c, layout.bays[i]);
+        const newBounds = boundsForRect(map, c, layout.bays[i], cx, cy, theta);
         if (newBounds) bayRefs.current[i]?.setBounds(newBounds);
       }
       for (let i = 0; i < layout.aisles.length; i++) {
-        const newBounds = boundsForRect(map, c, layout.aisles[i]);
+        const newBounds = boundsForRect(map, c, layout.aisles[i], cx, cy, theta);
         if (newBounds) aisleRefs.current[i]?.setBounds(newBounds);
       }
       for (let i = 0; i < layout.access.length; i++) {
-        const newBounds = boundsForRect(map, c, layout.access[i]);
+        const newBounds = boundsForRect(map, c, layout.access[i], cx, cy, theta);
         if (newBounds) accessRefs.current[i]?.setBounds(newBounds);
       }
     };
@@ -126,7 +137,7 @@ export default function BayGrid({ map, placement }: Props) {
     // We intentionally depend on placement (rebuild on change) and the map
     // identity. The map object's identity is stable for the map's lifetime.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [map, placement.id, placement.kind, placement.bounds.north, placement.bounds.south, placement.bounds.east, placement.bounds.west]);
+  }, [map, placement.id, placement.kind, placement.thetaDeg, placement.bounds.north, placement.bounds.south, placement.bounds.east, placement.bounds.west]);
 
   return null;
 }
@@ -150,20 +161,19 @@ function cornersOf(p: Placement): Corners {
   const ne = L.latLng(north, east);
   const sw = L.latLng(south, west);
   const se = L.latLng(south, east);
-  // We compute the unit vectors lazily in setBounds via latLngToLayerPoint
-  // on the nw point. Caller is responsible for re-computing when the map
-  // view changes; we do that in the `reposition` handler.
   return { nw, ne, sw, se, nwPx: L.point(0, 0), eastPerMetre: L.point(0, 0), southPerMetre: L.point(0, 0) };
 }
 
 function makeRectAt(
   map: L.Map,
   c: Corners,
-  rect: Bay | Aisle | Access
+  rect: Bay | Aisle | Access,
+  cx: number,
+  cy: number,
+  thetaDeg: number
 ): L.Rectangle {
-  const bounds = boundsForRect(map, c, rect);
+  const bounds = boundsForRect(map, c, rect, cx, cy, thetaDeg);
   if (!bounds) {
-    // Degenerate; return a zero-size rect off-map.
     return L.rectangle([[0, 0], [0, 0]], { interactive: false });
   }
   return L.rectangle(bounds, { interactive: false });
@@ -172,7 +182,10 @@ function makeRectAt(
 function boundsForRect(
   map: L.Map,
   c: Corners,
-  rect: Bay | Aisle | Access
+  rect: Bay | Aisle | Access,
+  cx: number,
+  cy: number,
+  thetaDeg: number
 ): L.LatLngBoundsExpression | null {
   if (!map) return null;
   const nwPx = map.latLngToLayerPoint(c.nw);
@@ -191,12 +204,17 @@ function boundsForRect(
   const southPerPxX = (swPx.x - nwPx.x) / lengthM;
   const southPerPxY = (swPx.y - nwPx.y) / lengthM;
 
-  // Local rect coords: x is along width (east), y is along length (south).
+  // Rotate the rect's local (x, y) about the placement's local centroid
+  // (cx, cy) by thetaDeg. The rotated point is still expressed in
+  // placement-local metres; the projection step is unchanged.
+  const p0Local = rotatePoint(rect.x, rect.y, cx, cy, thetaDeg);
+  const p1Local = rotatePoint(rect.x + rect.w, rect.y + rect.h, cx, cy, thetaDeg);
+
   // South bay y starts at 0; north bay y is negative (above the aisle).
-  const x0 = nwPx.x + rect.x * eastPerPxX + rect.y * southPerPxX;
-  const y0 = nwPx.y + rect.x * eastPerPxY + rect.y * southPerPxY;
-  const x1 = nwPx.x + (rect.x + rect.w) * eastPerPxX + (rect.y + rect.h) * southPerPxX;
-  const y1 = nwPx.y + (rect.x + rect.w) * eastPerPxY + (rect.y + rect.h) * southPerPxY;
+  const x0 = nwPx.x + p0Local.x * eastPerPxX + p0Local.y * southPerPxX;
+  const y0 = nwPx.y + p0Local.x * eastPerPxY + p0Local.y * southPerPxY;
+  const x1 = nwPx.x + p1Local.x * eastPerPxX + p1Local.y * southPerPxX;
+  const y1 = nwPx.y + p1Local.x * eastPerPxY + p1Local.y * southPerPxY;
 
   const p0 = map.layerPointToLatLng(L.point(x0, y0));
   const p1 = map.layerPointToLatLng(L.point(x1, y1));
