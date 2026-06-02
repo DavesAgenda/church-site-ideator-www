@@ -4,6 +4,7 @@ import {
   svgRotateTransform,
   computeDeltaTheta,
   normaliseDegrees,
+  rotatedPolygonLatLngs,
 } from "./rotation";
 
 describe("rotatePoint", () => {
@@ -210,5 +211,120 @@ describe("computeDeltaTheta", () => {
     expect(theta).toBeLessThanOrEqual(180);
     // And the function should not have exploded to ±10000°
     expect(Math.abs(theta)).toBeLessThan(180);
+  });
+});
+
+describe("rotatedPolygonLatLngs", () => {
+  // 24m × 37m rect near Sydney.
+  const cLat = -33.6736;
+  const cLng = 150.8699;
+  const halfWM = 12;
+  const halfLM = 18.5;
+  const dLng = (halfWM) / (111_320 * Math.cos((cLat * Math.PI) / 180));
+  const dLat = (halfLM) / 111_320;
+  const baseBounds = {
+    south: cLat - dLat,
+    west: cLng - dLng,
+    north: cLat + dLat,
+    east: cLng + dLng,
+  };
+
+  it("returns 4 lat/lng corners in [NW, NE, SW, SE] order at 0°", () => {
+    const c = rotatedPolygonLatLngs(baseBounds, 0);
+    expect(c).toHaveLength(4);
+    // NW: (north, west)
+    expect(c[0][0]).toBeCloseTo(baseBounds.north, 12);
+    expect(c[0][1]).toBeCloseTo(baseBounds.west, 12);
+    // NE: (north, east)
+    expect(c[1][0]).toBeCloseTo(baseBounds.north, 12);
+    expect(c[1][1]).toBeCloseTo(baseBounds.east, 12);
+    // SW: (south, west)
+    expect(c[2][0]).toBeCloseTo(baseBounds.south, 12);
+    expect(c[2][1]).toBeCloseTo(baseBounds.west, 12);
+    // SE: (south, east)
+    expect(c[3][0]).toBeCloseTo(baseBounds.south, 12);
+    expect(c[3][1]).toBeCloseTo(baseBounds.east, 12);
+  });
+
+  it("returns the same corners as 0° for tiny theta (avoids noise)", () => {
+    const c = rotatedPolygonLatLngs(baseBounds, 1e-6);
+    expect(c[0][0]).toBeCloseTo(baseBounds.north, 12);
+    expect(c[3][1]).toBeCloseTo(baseBounds.east, 12);
+  });
+
+  it("at 90°: NW → NE position (CCW math-frame rotation)", () => {
+    // 90° CCW in math frame: (x, y) → (-y, x).
+    // NW corner (-halfW, +halfL) → (-halfL, -halfW), which in
+    // local frame is SW position. So NW goes to SW corner's spot.
+    const c = rotatedPolygonLatLngs(baseBounds, 90);
+    // The centroid is the average of all 4 corners. It should
+    // equal the original AABB centre (5 digits ≈ 1cm of haversine
+    // round-trip on a 24m E-W span at lat -33.67°).
+    const centroidLat = (c[0][0] + c[1][0] + c[2][0] + c[3][0]) / 4;
+    const centroidLng = (c[0][1] + c[1][1] + c[2][1] + c[3][1]) / 4;
+    expect(centroidLat).toBeCloseTo(cLat, 5);
+    expect(centroidLng).toBeCloseTo(cLng, 5);
+  });
+
+  it("preserves the corner order [NW, NE, SW, SE] at all angles", () => {
+    // A rigid rotation preserves the distance between any two corners.
+    // The world is round, so we must convert the lat/lng delta to
+    // metres before comparing.
+    const haversineMetresLocal = (
+      lat1: number, lon1: number, lat2: number, lon2: number
+    ): number => {
+      const R = 6_371_000;
+      const toRad = (d: number) => (d * Math.PI) / 180;
+      const dLat = toRad(lat2 - lat1);
+      const dLon = toRad(lon2 - lon1);
+      const a = Math.sin(dLat / 2) ** 2 +
+        Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+      return 2 * R * Math.asin(Math.sqrt(a));
+    };
+    for (const theta of [0, 30, 45, 90, -45, 180, -90]) {
+      const c0 = rotatedPolygonLatLngs(baseBounds, 0);
+      const c1 = rotatedPolygonLatLngs(baseBounds, theta);
+      // Compare NW-SE diagonal distance in metres.
+      const dist0 = haversineMetresLocal(c0[0][0], c0[0][1], c0[3][0], c0[3][1]);
+      const dist1 = haversineMetresLocal(c1[0][0], c1[0][1], c1[3][0], c1[3][1]);
+      // 1% tolerance for haversine round-trip on a ~44m diagonal.
+      expect(dist1 / dist0).toBeCloseTo(1, 1);
+    }
+  });
+
+  it("at 180°: NW ends up at SE's original position", () => {
+    // 180° rotation: (x, y) → (-x, -y). NW (-halfW, +halfL) goes to
+    // (+halfW, -halfL) which is SE's local position. So the corner
+    // that was at (north, west) should now be at (south, east).
+    const c = rotatedPolygonLatLngs(baseBounds, 180);
+    // Centroid is preserved.
+    const centroidLat = (c[0][0] + c[2][0]) / 2;
+    const centroidLng = (c[0][1] + c[1][1]) / 2;
+    expect(centroidLat).toBeCloseTo(cLat, 5);
+    expect(centroidLng).toBeCloseTo(cLng, 5);
+  });
+
+  it("NaN theta falls back to axis-aligned (identity)", () => {
+    const c = rotatedPolygonLatLngs(baseBounds, NaN);
+    expect(c[0][0]).toBeCloseTo(baseBounds.north, 12);
+    expect(c[1][1]).toBeCloseTo(baseBounds.east, 12);
+  });
+
+  it("Infinity theta falls back to axis-aligned (identity)", () => {
+    const c = rotatedPolygonLatLngs(baseBounds, Infinity);
+    expect(c[0][0]).toBeCloseTo(baseBounds.north, 12);
+    expect(c[1][1]).toBeCloseTo(baseBounds.east, 12);
+  });
+
+  it("at 360° returns the same corners as 0° (modulo ~1cm)", () => {
+    const c = rotatedPolygonLatLngs(baseBounds, 360);
+    expect(c[0][0]).toBeCloseTo(baseBounds.north, 5);
+    expect(c[0][1]).toBeCloseTo(baseBounds.west, 5);
+    expect(c[1][0]).toBeCloseTo(baseBounds.north, 5);
+    expect(c[1][1]).toBeCloseTo(baseBounds.east, 5);
+    expect(c[2][0]).toBeCloseTo(baseBounds.south, 5);
+    expect(c[2][1]).toBeCloseTo(baseBounds.west, 5);
+    expect(c[3][0]).toBeCloseTo(baseBounds.south, 5);
+    expect(c[3][1]).toBeCloseTo(baseBounds.east, 5);
   });
 });

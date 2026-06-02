@@ -106,3 +106,87 @@ export function normaliseDegrees(deg: number): number {
   const wrapped = ((deg + 180) % 360 + 360) % 360 - 180;
   return wrapped === -180 ? 180 : wrapped;
 }
+
+/**
+ * Result of converting a (lat, lng) AABB into the four corners of its
+ * rotated rectangle, in `[lat, lng]` pairs suitable for `L.polygon()`.
+ *
+ * Layout of the four corners (looking down at the page, north up):
+ *
+ *   [0] NW   [1] NE
+ *   [2] SW   [3] SE
+ */
+export type RotatedCorners = [[number, number], [number, number], [number, number], [number, number]];
+
+/**
+ * Given a PlacementBounds (AABB in lat/lng) and a rotation in degrees,
+ * return the four lat/lng corners of the rectangle after rotation
+ * about its centre.
+ *
+ * The rectangle's local axes are aligned to true north/east:
+ *   - "width" runs along the east axis (cosine-of-lat scaled)
+ *   - "length" runs along the north axis
+ * After rotation by thetaDeg, each of the four corners is
+ * `rotatePoint`d about the AABB centre, then converted back to lat/lng
+ * using the same flat-earth conversion factor.
+ */
+export function rotatedPolygonLatLngs(
+  bounds: { south: number; west: number; north: number; east: number },
+  thetaDeg: number
+): RotatedCorners {
+  if (!Number.isFinite(thetaDeg) || Math.abs(thetaDeg % 360) < 1e-4) {
+    // Identity: rectangle is axis-aligned; return corners in NW, NE,
+    // SW, SE order so consumers can assume rotation always produces 4
+    // points in the same layout.
+    return [
+      [bounds.north, bounds.west],
+      [bounds.north, bounds.east],
+      [bounds.south, bounds.west],
+      [bounds.south, bounds.east],
+    ];
+  }
+  // 1. Compute the AABB centre in lat/lng.
+  const cLat = (bounds.north + bounds.south) / 2;
+  const cLng = (bounds.east + bounds.west) / 2;
+  // 2. Compute the half-width in metres (along the east axis) and the
+  // half-length in metres (along the north axis).
+  const halfWM = haversineMetres(cLat, cLng, cLat, bounds.east);
+  const halfLM = haversineMetres(cLat, cLng, bounds.north, cLng);
+  // 3. Local metre-frame corners (NW, NE, SW, SE) about the centre.
+  //    Local axes: x = east, y = north (so y-up in metres).
+  const localCorners: [number, number][] = [
+    [-halfWM, halfLM],  // NW
+    [ halfWM, halfLM],  // NE
+    [-halfWM, -halfLM], // SW
+    [ halfWM, -halfLM], // SE
+  ];
+  // 4. Rotate each corner in metre-frame.
+  const rotated = localCorners.map(([x, y]) =>
+    rotatePoint(x, y, 0, 0, thetaDeg)
+  );
+  // 5. Convert each rotated metre delta back to lat/lng.
+  //    delta_lat = -delta_y_metres / 111320   (y-up in metres is north-up)
+  //    delta_lng = delta_x_metres / (111320 · cos(cLat))
+  const cosLat = Math.cos((cLat * Math.PI) / 180);
+  const toLng = (xM: number) => cLng + xM / (111_320 * cosLat);
+  const toLat = (yM: number) => cLat - yM / 111_320;
+  return rotated.map((p) => [toLat(p.y), toLng(p.x)]) as RotatedCorners;
+}
+
+/**
+ * Local haversine in metres between two lat/lng points. Mirrors the
+ * helper in lib/placements.ts so this file stays self-contained.
+ */
+function haversineMetres(
+  lat1: number, lon1: number,
+  lat2: number, lon2: number
+): number {
+  const R = 6_371_000;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}

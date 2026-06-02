@@ -5,11 +5,13 @@ import "leaflet/dist/leaflet.css";
 import "@geoman-io/leaflet-geoman-free";
 import "@geoman-io/leaflet-geoman-free/dist/leaflet-geoman.css";
 import type { Parcel } from "@/lib/types";
+import { typePlacementColour, kindLabel, rotateBounds } from "@/lib/placements";
 import type { Placement, PlacementKind, PlacementBounds } from "@/lib/placements";
-import { typePlacementColour, kindLabel } from "@/lib/placements";
 import Sidebar from "./Sidebar";
 import SearchBar from "./SearchBar";
 import BayGrid from "./BayGrid";
+import RotationHandle from "./RotationHandle";
+import { rotatedPolygonLatLngs } from "@/lib/parking/rotation";
 import { loadViewport, saveViewport, saveParcelAndPlacements } from "@/lib/viewport/persistence";
 import { isValidState } from "@/lib/persistence";
 import type { GeocodeResult } from "@/lib/geocode/nominatim";
@@ -39,9 +41,16 @@ export default function MapView() {
   const [activeKind, setActiveKind] = useState<PlacementKind>("carpark");
   const [dismissedWarnings, setDismissedWarnings] = useState<Set<string>>(new Set());
   const [map, setMap] = useState<L.Map | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const parcelLayerRef = useRef<L.Polygon | null>(null);
   const rectLayerMapRef = useRef<Map<string, L.Rectangle>>(new Map());
+  // Rotated polygon overlay: a copy of the placement rect that has
+  // been rotated to thetaDeg, kept in sync with the placement's
+  // bounds+thetaDeg. Created when thetaDeg != 0; removed when back to
+  // 0. The AABB rectangle (rectLayerMapRef) is left as-is so the
+  // existing drag-to-move logic still works.
+  const rotatedLayerMapRef = useRef<Map<string, L.Polygon>>(new Map());
   const placementsRef = useRef<Placement[]>([]);
   const activeKindRef = useRef<PlacementKind>("carpark");
   const hydratedRef = useRef(false);
@@ -161,6 +170,17 @@ export default function MapView() {
       setPlacements((prev) => [...prev, placement]);
     });
 
+    // ---- Click on background to deselect ----
+    map.on("click", (e: L.LeafletMouseEvent) => {
+      const target = e.originalEvent.target as HTMLElement | null;
+      let el: HTMLElement | null = target;
+      while (el && !el.classList?.contains("leaflet-interactive")) {
+        el = el.parentElement;
+      }
+      // Only deselect if the click wasn't on a placement rect.
+      if (!el) setSelectedId(null);
+    });
+
     // ---- Drag-to-move on existing rectangles ----
     let dragId: string | null = null;
     let dragStart: L.LatLng | null = null;
@@ -181,6 +201,22 @@ export default function MapView() {
       // is to test each rect's getElement() === el.)
       for (const [id, rect] of rectLayerMapRef.current.entries()) {
         if (rect.getElement() === el) {
+          // Selection: clicking a rect selects that placement, even if
+          // the user immediately starts dragging. The handle is
+          // unmounted on drag and remounted on mouseup.
+          setSelectedId(id);
+          dragId = id;
+          dragStart = e.latlng;
+          const p = placementsRef.current.find((x) => x.id === id);
+          if (p) dragStartBounds = { ...p.bounds };
+          map.dragging.disable();
+          map.boxZoom.disable();
+          return;
+        }
+      }
+      for (const [id, poly] of rotatedLayerMapRef.current.entries()) {
+        if (poly.getElement() === el) {
+          setSelectedId(id);
           dragId = id;
           dragStart = e.latlng;
           const p = placementsRef.current.find((x) => x.id === id);
@@ -284,6 +320,7 @@ export default function MapView() {
       setMap(null);
       parcelLayerRef.current = null;
       rectLayerMapRef.current.clear();
+      rotatedLayerMapRef.current.clear();
       hydratedRef.current = false;
     };
     // Mount-once effect. No deps so the map is never torn down.
@@ -314,12 +351,17 @@ export default function MapView() {
     map.setView([r.lat, r.lon], 19, { animate: true });
   }, [map]);
 
-  // Delete handler: drop the rectangle from the map and update state.
+  // Delete handler: drop the rectangle (and any rotated overlay) from
+  // the map and update state.
   const handleDelete = useCallback((id: string) => {
     const rect = rectLayerMapRef.current.get(id);
     if (rect && map) map.removeLayer(rect);
     rectLayerMapRef.current.delete(id);
+    const poly = rotatedLayerMapRef.current.get(id);
+    if (poly && map) map.removeLayer(poly);
+    rotatedLayerMapRef.current.delete(id);
     setPlacements((prev) => prev.filter((p) => p.id !== id));
+    setSelectedId((cur) => (cur === id ? null : cur));
   }, [map]);
 
   const handleDismissWarning = useCallback((key: string) => {
@@ -329,6 +371,82 @@ export default function MapView() {
       return next;
     });
   }, []);
+
+  // Rotation handler: applies a new thetaDeg to a placement. When the
+  // user rotates, the placement's data bounds grow to the AABB of the
+  // rotated rectangle (so the visual rect matches the data, and the
+  // solver sees a larger footprint at non-zero angles).
+  const handleRotate = useCallback(
+    (id: string, newThetaDeg: number) => {
+      setPlacements((prev) =>
+        prev.map((p) => {
+          if (p.id !== id) return p;
+          return {
+            ...p,
+            thetaDeg: newThetaDeg,
+            bounds: rotateBounds(p.bounds, newThetaDeg),
+          };
+        })
+      );
+    },
+    []
+  );
+
+  // ---- Rotated polygon overlay sync ----
+  // For every placement with thetaDeg != 0, keep an L.Polygon on the
+  // map whose 4 corners are the rotated bounds. Hide the AABB
+  // rectangle's fill (leave the stroke) so the rotated polygon paints
+  // over it cleanly. For thetaDeg == 0, remove any rotated overlay.
+  useEffect(() => {
+    if (!map) return;
+    const seenIds = new Set<string>();
+    placements.forEach((p) => {
+      seenIds.add(p.id);
+      const theta = p.thetaDeg;
+      const hasOverlay = rotatedLayerMapRef.current.has(p.id);
+      if (Math.abs(theta) < 1e-4) {
+        // No rotation: remove the overlay if it exists.
+        if (hasOverlay) {
+          const poly = rotatedLayerMapRef.current.get(p.id);
+          if (poly) map.removeLayer(poly);
+          rotatedLayerMapRef.current.delete(p.id);
+        }
+        // And unhide the AABB rectangle's fill (if it was hidden).
+        const rect = rectLayerMapRef.current.get(p.id);
+        if (rect) {
+          rect.setStyle({ fillOpacity: 0.3 });
+        }
+        return;
+      }
+      // We have a non-zero rotation. Build the 4 rotated corners.
+      const corners = rotatedPolygonLatLngs(p.bounds, theta);
+      if (!hasOverlay) {
+        const poly = L.polygon(corners, {
+          color: typePlacementColour(p.kind),
+          weight: 2,
+          fillOpacity: 0.3,
+        })
+          .bindTooltip(p.name)
+          .addTo(map);
+        rotatedLayerMapRef.current.set(p.id, poly);
+        // Hide the AABB rectangle's fill so the rotated polygon paints
+        // over it cleanly. Keep the stroke so the user can still see
+        // the data bounds as a faint outline.
+        const rect = rectLayerMapRef.current.get(p.id);
+        if (rect) rect.setStyle({ fillOpacity: 0 });
+      } else {
+        const poly = rotatedLayerMapRef.current.get(p.id);
+        if (poly) poly.setLatLngs(corners);
+      }
+    });
+    // Clean up overlays for placements that no longer exist.
+    for (const [id, poly] of rotatedLayerMapRef.current.entries()) {
+      if (!seenIds.has(id)) {
+        map.removeLayer(poly);
+        rotatedLayerMapRef.current.delete(id);
+      }
+    }
+  }, [map, placements]);
 
   return (
     <>
@@ -348,6 +466,18 @@ export default function MapView() {
         placements
           .filter((p) => p.kind === "carpark")
           .map((p) => <BayGrid key={p.id} map={map} placement={p} />)}
+      {/* RotationHandle: one at a time, on the selected placement. */}
+      {map && selectedId && (() => {
+        const p = placements.find((x) => x.id === selectedId);
+        if (!p) return null;
+        return (
+          <RotationHandle
+            map={map}
+            placement={p}
+            onRotate={(theta) => handleRotate(p.id, theta)}
+          />
+        );
+      })()}
     </>
   );
 }
