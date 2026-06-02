@@ -225,7 +225,7 @@ export default function RotationHandle({
         role="button"
         aria-label="Rotate placement"
         title="Drag to rotate"
-        className="absolute cursor-grab active:cursor-grabbing"
+        className="absolute left-0 top-0 cursor-grab active:cursor-grabbing"
         style={{
           width: `${HANDLE_RADIUS_PX * 2}px`,
           height: `${HANDLE_RADIUS_PX * 2}px`,
