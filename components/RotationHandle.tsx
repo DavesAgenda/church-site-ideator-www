@@ -58,6 +58,17 @@ export default function RotationHandle({
     pointerId: number | null;
   } | null>(null);
 
+  // A ref holding the current map instance. Set by the position
+  // effect, read by the drag handler. The previous approach attached
+  // _map to the DOM node via a JSX prop spread, but React strips
+  // unknown props from DOM elements, so the drag handler always
+  // bailed on `if (!map) return;`. A ref is the right way to pass
+  // non-DOM data into an event handler.
+  const mapRef = useRef<L.Map | null>(null);
+  useEffect(() => {
+    mapRef.current = map;
+  }, [map]);
+
   const thetaRef = useRef(placement.thetaDeg);
   const onRotateRef = useRef(onRotate);
 
@@ -146,7 +157,7 @@ export default function RotationHandle({
       // L.Map might steal the event if we don't disable it. The
       // handle has CSS pointer-events:auto, the rest of the map
       // is OK because we stopped propagation here.
-      const map = (handle as any)._map as L.Map | undefined;
+      const map = mapRef.current;
       if (!map) return;
       map.dragging.disable();
       const centroid = L.latLng(
@@ -190,7 +201,7 @@ export default function RotationHandle({
         // already released
       }
       // Re-enable map dragging.
-      const map = (handle as any)._map as L.Map | undefined;
+      const map = mapRef.current;
       if (map) map.dragging.enable();
       dragRef.current = null;
     };
@@ -220,8 +231,6 @@ export default function RotationHandle({
       />
       <div
         ref={handleRef}
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        {...({ _map: map } as any)}
         role="button"
         aria-label="Rotate placement"
         title="Drag to rotate"
